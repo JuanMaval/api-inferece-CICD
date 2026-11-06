@@ -1,0 +1,42 @@
+[project]
+name = "api-inference"
+version = "0.1.0"
+description = "FastAPI inference service for the diabetes readmission model"
+readme = "README.md"
+authors = [
+    { name = "aristotekean", email = "kean.solano@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.162.0",
+    "uvicorn>=0.54.0",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.10",
+    "mlflow==3.16.1",
+    "scikit-learn==1.9.1",
+    "skops>=0.11",
+    "pandas>=2.2,<3",
+    "numpy>=2.0",
+    "psycopg[binary,pool]>=3.2",
+    "prometheus-client>=0.21",
+    "diabetes-model",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.3",
+    "pytest-asyncio>=1.0",
+]
+
+[tool.uv.sources]
+diabetes-model = { path = "../../ml/diabetes_model" }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["uv_build>=0.12.14,<0.13.0"]
+build-backend = "uv_build"
