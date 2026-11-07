@@ -1,5 +1,7 @@
 # api-inference
 
+**Grupo 6:** Kevin Bueno · Juan Camilo Martínez · Jorge Andrés Gil
+
 Servicio FastAPI que expone el modelo de readmisión diabética registrado en
 MLflow (`models:/diabetes@production`), registra cada inferencia en la tabla
 `inference.logs` y publica métricas Prometheus.
@@ -285,11 +287,19 @@ El workflow `.github/workflows/ci-cd-unit-tests-dockerhub.yml` monitorea el
 código (`src/`, `tests/`, `ml/`), los archivos de dependencias y los Dockerfiles
 desde la raíz del repositorio (`APP_PATH: "."`). Ejecuta las pruebas en Python
 3.14 para pushes a `main` y `feature/**`, y para pull requests hacia `main`.
-Solo publica la imagen `api-inference` en Docker Hub después de pasar las
-pruebas en un push a `main`.
+El job `publish-dockerhub` depende de que `unit-tests` termine correctamente y
+solo se ejecuta en pushes a `main`. Construye y publica la imagen con las
+etiquetas `latest` y el SHA del commit.
 
 Para habilitar la publicación, configura los secretos del repositorio
 `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN`.
+
+La imagen pública está en
+[Docker Hub: `juanmaval/api-inference`](https://hub.docker.com/r/juanmaval/api-inference):
+
+```bash
+docker pull juanmaval/api-inference:latest
+```
 
 El contenedor termina con el código de salida de pytest, por lo que puede
 usarse directamente como paso de CI.
@@ -338,3 +348,32 @@ El servicio se ejecuta sobre CPython 3.14 (`.python-version`). Se intentó
 `diabetes_model`) no publican ruedas `cp315` y la compilación desde fuente de
 `pyarrow` falla; 3.14 instala todo desde ruedas, incluido
 `scikit-learn==1.9.1`, la misma versión con la que se entrena el modelo.
+
+## Evidencias CI/CD
+
+### A) Job `unit-tests` exitoso
+
+Ejecución del workflow *CI Unit Tests + DockerHub Publish* con las pruebas
+unitarias en verde.
+
+![Job unit-tests exitoso](docs/evidencias/ci-unit-tests.png)
+
+### B) Job `publish-dockerhub` en `main`
+
+Construcción y publicación de la imagen en Docker Hub tras el push a `main`.
+
+![Job publish-dockerhub exitoso](docs/evidencias/ci-publish-dockerhub.png)
+
+### C) Imagen en Docker Hub
+
+Imagen pública [`juanmaval/api-inference`](https://hub.docker.com/r/juanmaval/api-inference/tags)
+con los tags `latest` y `<sha>` del commit
+(`d7029b26a0adc6edc2d4dd6cc6188753f0aac937`).
+
+![Repositorio en Docker Hub](docs/evidencias/dockerhub-api-inference.png)
+
+### Extra) Pruebas en contenedor local
+
+Ejecución de la suite (63 pruebas) con `docker run --rm api-inference-tests`.
+
+![Pruebas en Docker local](docs/evidencias/tests-docker-local.png)
