@@ -284,13 +284,25 @@ usarse directamente como paso de CI.
 
 ## Imagen de producción
 
-`Dockerfile` construye la imagen que sirve la API con uvicorn en el puerto
-8000, con usuario no root, `HEALTHCHECK` sobre `/health` y el directorio
-`/app/spool` preparado para el spool de `inference.logs`.
+`Dockerfile` construye en dos etapas la imagen que sirve la API con uvicorn en
+el puerto 8000: la primera instala las dependencias fijadas en `uv.lock` con
+uv; la segunda, sobre `python:3.14-slim`, copia solo el entorno virtual y
+`src/`. Corre con usuario no root, define un `HEALTHCHECK` sobre `/health` y
+deja preparado `/app/spool` para el spool de `inference.logs`. El contexto de
+construcción es la raíz del repositorio.
 
-> **Pendiente:** el `Dockerfile` todavía usa las rutas del monorepo original
-> (`apps/api-inference/...`). Hay que adaptarlo al layout de este repositorio
-> (`src/`, `ml/diabetes_model`) antes de poder construirlo desde aquí.
+```bash
+docker build -t api-inference .
+docker run --rm -p 8000:8000 \
+  -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
+  -e TRAIN_DATABASE_URL=postgresql://app:app@postgres:5432/diabetes \
+  api-inference
+```
+
+Si MLflow o la base de datos no están disponibles al arrancar, el contenedor
+igual queda en pie: `/health` responde `200` con `model_loaded=false` y
+`/predict` devuelve `503` hasta que el refresco en segundo plano consiga cargar
+el modelo (ver [Estrategia de carga del modelo](#estrategia-de-carga-del-modelo)).
 
 ## Dependencia `diabetes-model`
 
