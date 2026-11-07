@@ -196,7 +196,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "diabetes-model", directory = "../../ml/diabetes_model" },
+    { name = "diabetes-model", directory = "ml/diabetes_model" },
     { name = "fastapi", specifier = ">=0.162.0" },
     { name = "mlflow", specifier = "==3.16.1" },
     { name = "numpy", specifier = ">=2.0" },
@@ -581,7 +581,7 @@ wheels = [
 [[package]]
 name = "diabetes-model"
 version = "0.1.0"
-source = { directory = "../../ml/diabetes_model" }
+source = { directory = "ml/diabetes_model" }
 dependencies = [
     { name = "pandas" },
     { name = "scikit-learn" },

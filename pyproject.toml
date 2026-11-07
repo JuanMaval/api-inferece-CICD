@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-diabetes-model = { path = "../../ml/diabetes_model" }
+diabetes-model = { path = "ml/diabetes_model" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
