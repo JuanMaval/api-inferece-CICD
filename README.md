@@ -279,6 +279,18 @@ docker run --rm api-inference-tests                                  # suite com
 docker run --rm api-inference-tests pytest tests/test_predict.py -q  # un archivo
 ```
 
+### CI y publicación en Docker Hub
+
+El workflow `.github/workflows/ci-cd-unit-tests-dockerhub.yml` monitorea el
+código (`src/`, `tests/`, `ml/`), los archivos de dependencias y los Dockerfiles
+desde la raíz del repositorio (`APP_PATH: "."`). Ejecuta las pruebas en Python
+3.14 para pushes a `main` y `feature/**`, y para pull requests hacia `main`.
+Solo publica la imagen `api-inference` en Docker Hub después de pasar las
+pruebas en un push a `main`.
+
+Para habilitar la publicación, configura los secretos del repositorio
+`DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN`.
+
 El contenedor termina con el código de salida de pytest, por lo que puede
 usarse directamente como paso de CI.
 
