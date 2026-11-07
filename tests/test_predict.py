@@ -10,6 +10,18 @@ from diabetes_model.contract import INPUT_COLUMNS
 from conftest import FakeModel, FakeRegistry, InMemoryRepository, make_app, valid_features
 
 
+def test_predict_endpoint_is_exposed_and_uses_fixture_model(test_client, prediction_model):
+    openapi = test_client.get("/openapi.json").json()
+    assert "post" in openapi["paths"]["/predict"]
+
+    response = test_client.post("/predict", json={"features": valid_features()})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["prediction"] == "NO"
+    assert response.json()["probabilities"] == {"<30": 0.05, ">30": 0.15, "NO": 0.8}
+    assert len(prediction_model.frames) == 1
+
+
 async def test_predict_success_returns_contract_and_logs_row(running_client):
     app, _, repository, _ = make_app()
     client = await running_client(app)

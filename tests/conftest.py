@@ -3,7 +3,7 @@ in-memory inference log repository. No MLflow server, no Postgres."""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -12,6 +12,7 @@ import httpx
 import numpy as np
 import pytest
 from diabetes_model.contract import INPUT_COLUMNS, NUMERIC_INPUTS
+from fastapi.testclient import TestClient
 
 from api_inference.main import create_app
 from api_inference.model import ModelLoadError, ModelService, RegisteredVersion
@@ -142,6 +143,19 @@ def make_app(
     service = make_service(registry, settings)
     app = create_app(settings=settings, model_service=service, repository=repository)
     return app, registry, repository, service
+
+
+@pytest.fixture
+def prediction_model() -> FakeModel:
+    """Provide an isolated model instance for synchronous endpoint tests."""
+    return FakeModel()
+
+
+@pytest.fixture
+def test_client(prediction_model: FakeModel) -> Iterator[TestClient]:
+    app, _, _, _ = make_app(registry=FakeRegistry(model=prediction_model))
+    with TestClient(app) as client:
+        yield client
 
 
 def valid_features() -> dict[str, Any]:
