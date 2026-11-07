@@ -41,6 +41,15 @@ uv sync                 # crea .venv con dependencias y grupo dev
 uv run pytest -q        # ejecuta la suite
 ```
 
+Para ejecutar la suite en Docker, sin instalar nada en la máquina:
+
+```bash
+docker build -f Dockerfile.test -t api-inference-tests .
+docker run --rm api-inference-tests
+```
+
+Más detalle en [Pruebas en Docker](#pruebas-en-docker).
+
 Para levantar el servicio contra un MLflow y un PostgreSQL reales:
 
 ```bash
