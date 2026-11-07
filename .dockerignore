@@ -1,0 +1,11 @@
+.git
+.gitignore
+.atl
+.venv
+**/__pycache__
+**/.pytest_cache
+**/*.egg-info
+**/build
+Dockerfile
+Dockerfile.test
+.dockerignore

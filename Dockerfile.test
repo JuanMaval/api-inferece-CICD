@@ -1,0 +1,41 @@
+# Unit test image: runs the pytest suite against the pinned uv.lock.
+#
+# Dependencies (including the dev group: pytest, pytest-asyncio, httpx) are
+# installed into /app/.venv from pyproject.toml + uv.lock. The project itself
+# is not installed; like the runtime image, the package is reached through
+# PYTHONPATH=/app/src.
+#
+# Build context is the repository root because uv.lock resolves the shared
+# diabetes-model package from the vendored ml/diabetes_model directory:
+#   docker build -f Dockerfile.test -t api-inference-tests .
+#   docker run --rm api-inference-tests
+#   docker run --rm api-inference-tests pytest tests/test_predict.py -k feedback
+
+FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app/src"
+
+WORKDIR /app
+
+# Dependency layer: only lockfile inputs, so it is cached while source changes.
+COPY ml/diabetes_model ./ml/diabetes_model
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-install-project
+
+# Source and tests. pyproject.toml carries the pytest configuration
+# (testpaths, asyncio_mode), so pytest is run from /app.
+COPY src/ ./src/
+COPY tests/ ./tests/
+
+RUN groupadd -g 1000 app && useradd -u 1000 -g 1000 -m -s /bin/bash app \
+    && chown -R 1000:1000 /app
+USER app
+
+CMD ["pytest", "-v"]

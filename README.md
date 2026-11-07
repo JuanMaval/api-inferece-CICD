@@ -213,6 +213,22 @@ uv run uvicorn api_inference.main:app --reload
 Las pruebas no necesitan red, MLflow ni PostgreSQL: inyectan un registro falso,
 un modelo falso y un repositorio en memoria a través de `create_app(...)`.
 
+### Pruebas en Docker
+
+`Dockerfile.test` construye una imagen con las dependencias fijadas en
+`uv.lock` (incluido el grupo `dev`) y ejecuta la suite completa con pytest. El
+contexto de construcción es la raíz del repositorio porque `uv.lock` resuelve
+`diabetes-model` desde la copia vendorizada en `ml/diabetes_model`.
+
+```bash
+docker build -f Dockerfile.test -t api-inference-tests .
+docker run --rm api-inference-tests                                  # suite completa
+docker run --rm api-inference-tests pytest tests/test_predict.py -q  # un archivo
+```
+
+El contenedor termina con el código de salida de pytest, por lo que puede
+usarse directamente como paso de CI.
+
 ## Docker y compose
 
 El `Dockerfile` usa la raíz del repositorio como contexto para copiar el
