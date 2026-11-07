@@ -4,6 +4,51 @@ Servicio FastAPI que expone el modelo de readmisión diabética registrado en
 MLflow (`models:/diabetes@production`), registra cada inferencia en la tabla
 `inference.logs` y publica métricas Prometheus.
 
+Este repositorio contiene únicamente el servicio de inferencia y su pipeline
+de pruebas. El entrenamiento, las migraciones de base de datos y el despliegue
+viven en el repositorio `diabetes-mlops`; el contrato de datos compartido
+(`diabetes_model`) está vendorizado aquí para que el servicio se construya y
+se pruebe de forma autónoma.
+
+## Estructura del repositorio
+
+```text
+.
+├── src/api_inference/      # Aplicación FastAPI
+│   ├── main.py             # create_app(), lifespan, rutas de operación
+│   ├── predict.py          # POST /predict y /predict/{id}/feedback
+│   ├── model.py            # Carga, refresco y recarga del modelo MLflow
+│   ├── repository.py       # Persistencia en inference.logs / inference.feedback
+│   ├── spool.py            # Spool en disco para filas que la base de datos no aceptó
+│   ├── metrics.py          # Middleware Prometheus
+│   ├── schemas.py          # Esquemas Pydantic generados desde el contrato
+│   └── settings.py         # Configuración por variables de entorno
+├── tests/                  # Suite pytest (sin red, MLflow ni PostgreSQL)
+├── ml/diabetes_model/      # Contrato de datos compartido (copia vendorizada)
+├── Dockerfile              # Imagen de producción (uvicorn)
+├── Dockerfile.test         # Imagen que ejecuta la suite de pruebas
+├── pyproject.toml          # Dependencias y configuración de pytest
+└── uv.lock                 # Versiones fijadas (uv)
+```
+
+## Inicio rápido
+
+Requisitos: [uv](https://docs.astral.sh/uv/) (descarga CPython 3.14 si no está
+instalado) y, para las imágenes, Docker.
+
+```bash
+uv sync                 # crea .venv con dependencias y grupo dev
+uv run pytest -q        # ejecuta la suite
+```
+
+Para levantar el servicio contra un MLflow y un PostgreSQL reales:
+
+```bash
+TRAIN_DATABASE_URL=postgresql://app:app@localhost:5432/diabetes \
+MLFLOW_TRACKING_URI=http://localhost:5000 \
+uv run uvicorn api_inference.main:app --reload
+```
+
 ## Endpoints
 
 | Método | Ruta            | Descripción |
@@ -11,7 +56,7 @@ MLflow (`models:/diabetes@production`), registra cada inferencia en la tabla
 | GET    | `/health`       | Liveness. Siempre `200`; informa `model_loaded` y el estado de la base de datos (`ok`/`error`). |
 | GET    | `/model-info`   | Nombre, alias, versión, `run_id`, estado (`ready`/`unavailable`), `loaded_at`, última comprobación del alias y último error. |
 | POST   | `/model/reload` | Fuerza la recarga de la versión apuntada por el alias. Devuelve `previous_version`, `current_version` y `changed`. `503` si la carga falla (se conserva la versión anterior). |
-| POST   | `/predict`      | Una observación por petición. Contrato en `docs/data-contract.md`. |
+| POST   | `/predict`      | Una observación por petición. Contrato definido en `ml/diabetes_model/src/diabetes_model/contract.py`. |
 | POST   | `/predict/{request_id}/feedback` | Registra el resultado real (`readmitted`) de una petición ya registrada. Alimenta `inference.training_examples`. |
 | GET    | `/metrics`      | Exposición Prometheus (`text/plain; version=0.0.4`). |
 
@@ -107,8 +152,8 @@ Las llamadas a MLflow y a scikit-learn son bloqueantes; todas se ejecutan en
 ## Registro en `inference.logs`
 
 Se persiste una fila por petición a `/predict`, incluidas las fallidas, en la
-base de datos de entrenamiento (`postgres-train`, esquema creado por
-`infra/database/migrations/001_create_data_contract.sql`):
+base de datos de entrenamiento (esquema `inference`, creado por las
+migraciones del repositorio `diabetes-mlops`):
 
 - `input_data`: el objeto `features` tal como se envió (en errores de parseo
   JSON se guarda `{"raw": "<cuerpo truncado>"}`).
@@ -122,7 +167,7 @@ escritura en base de datos.
 
 ### Ground truth: `inference.feedback` y `inference.training_examples`
 
-`infra/database/migrations/003_inference_feedback.sql` añade la tabla
+La migración `003_inference_feedback.sql` de `diabetes-mlops` añade la tabla
 `inference.feedback` (una etiqueta por `request_id`, FK a `inference.logs`) y
 la vista `inference.training_examples`, que une cada predicción exitosa con su
 etiqueta observada (`features`, `readmitted`, `predicted_readmitted`, identidad
@@ -181,10 +226,10 @@ Además se exportan los colectores por defecto (`process_*` en Linux,
 
 ## Configuración
 
-La API lee su configuración del entorno. En compose y en Kubernetes los valores
-salen del `.env` de la raíz del repositorio (`MLFLOW_*`, `MODEL_*`,
-`TRAIN_DB_*`; ver [`.env.example`](../../.env.example)); las demás variables de
-la tabla toman su valor por defecto.
+La API lee su configuración del entorno mediante `pydantic-settings`
+(`src/api_inference/settings.py`). Para servir el modelo real hacen falta al
+menos `MLFLOW_TRACKING_URI` y la conexión a la base de datos; el resto toma su
+valor por defecto.
 
 | Variable | Por defecto | Descripción |
 | -------- | ----------- | ----------- |
@@ -195,23 +240,22 @@ la tabla toman su valor por defecto.
 | `TRAIN_DATABASE_URL` | — | DSN completo; tiene prioridad sobre las partes. |
 | `TRAIN_DB_HOST` / `TRAIN_DB_PORT` / `TRAIN_DB_NAME` / `TRAIN_DB_USER` / `TRAIN_DB_PASSWORD` | `—/5432/—/—/—` | Partes del DSN de `inference.logs`. |
 | `DB_POOL_MIN` / `DB_POOL_MAX` | `1` / `4` | Tamaño del pool async de psycopg. |
+| `DB_CONNECT_TIMEOUT_SECONDS` | `5` | Timeout de conexión a la base de datos. |
 | `INFERENCE_LOG_SPOOL_PATH` | `spool/inference-logs.jsonl` | Spool en disco para filas de `inference.logs` que la base de datos no aceptó (relativo al directorio de trabajo, `/app` en la imagen). Vacío lo desactiva. |
 | `INFERENCE_LOG_REPLAY_SECONDS` | `15` | Periodo del reintento en segundo plano del spool; `0` lo desactiva. |
 | `LOG_LEVEL` | `INFO` | Nivel de logging estándar. |
 
-## Desarrollo local
-
-```bash
-cd apps/api-inference
-uv sync
-uv run pytest -q
-TRAIN_DATABASE_URL=postgresql://app:app@localhost:5432/diabetes \
-MLFLOW_TRACKING_URI=http://localhost:5000 \
-uv run uvicorn api_inference.main:app --reload
-```
+## Pruebas
 
 Las pruebas no necesitan red, MLflow ni PostgreSQL: inyectan un registro falso,
-un modelo falso y un repositorio en memoria a través de `create_app(...)`.
+un modelo falso y un repositorio en memoria a través de `create_app(...)`
+(ver `tests/conftest.py`). La configuración de pytest (`testpaths`,
+`asyncio_mode = "auto"`) vive en `pyproject.toml`.
+
+```bash
+uv run pytest -q                       # suite completa
+uv run pytest tests/test_predict.py -q # un archivo
+```
 
 ### Pruebas en Docker
 
@@ -229,22 +273,35 @@ docker run --rm api-inference-tests pytest tests/test_predict.py -q  # un archiv
 El contenedor termina con el código de salida de pytest, por lo que puede
 usarse directamente como paso de CI.
 
-## Docker y compose
+## Imagen de producción
 
-El `Dockerfile` usa la raíz del repositorio como contexto para copiar el
-paquete compartido `ml/diabetes_model` (dependencia de ruta en `uv.lock`). En
-`docker-compose.yml` el servicio `api-inference` depende de `mlflow`,
-`postgres-train` (healthcheck) y `train-db-migrate` (migraciones aplicadas).
+`Dockerfile` construye la imagen que sirve la API con uvicorn en el puerto
+8000, con usuario no root, `HEALTHCHECK` sobre `/health` y el directorio
+`/app/spool` preparado para el spool de `inference.logs`.
 
-```bash
-docker compose build api-inference
-docker compose up -d api-inference
-```
+> **Pendiente:** el `Dockerfile` todavía usa las rutas del monorepo original
+> (`apps/api-inference/...`). Hay que adaptarlo al layout de este repositorio
+> (`src/`, `ml/diabetes_model`) antes de poder construirlo desde aquí.
+
+## Dependencia `diabetes-model`
+
+`ml/diabetes_model` es una copia del paquete `diabetes_model` de
+`diabetes-mlops` (`ml/diabetes_model`). Define el contrato de entrada
+(`INPUT_COLUMNS`, `NUMERIC_INPUTS`, `TARGET_CLASSES`, `input_frame`) a partir
+del cual `schemas.py` genera los modelos Pydantic en tiempo de importación, de
+modo que la API y el pipeline de entrenamiento validan exactamente las mismas
+columnas. Se declara como dependencia de ruta en `pyproject.toml`
+(`[tool.uv.sources]`) y está fijada en `uv.lock`.
+
+Cuando el contrato cambie en `diabetes-mlops`, hay que copiar de nuevo
+`pyproject.toml` y `src/diabetes_model/*.py` y regenerar el lock con
+`uv lock`. Los artefactos `build/` y `*.egg-info/` que setuptools deja al
+compilar el paquete están ignorados por git y por Docker.
 
 ## Versión de Python
 
-El servicio se ejecuta sobre CPython 3.14. Se intentó 3.15, pero
-`pyarrow` (dependencia de MLflow) y `pandas 2.3.x` (fijado `<3` por
+El servicio se ejecuta sobre CPython 3.14 (`.python-version`). Se intentó
+3.15, pero `pyarrow` (dependencia de MLflow) y `pandas 2.3.x` (fijado `<3` por
 `diabetes_model`) no publican ruedas `cp315` y la compilación desde fuente de
 `pyarrow` falla; 3.14 instala todo desde ruedas, incluido
 `scikit-learn==1.9.1`, la misma versión con la que se entrena el modelo.
