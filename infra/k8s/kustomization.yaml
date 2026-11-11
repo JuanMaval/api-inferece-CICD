@@ -19,5 +19,5 @@ images:
   # newName and newTag below with the commit SHA after every publish; Argo CD
   # deploys that commit. The values here are placeholders until the first run.
   - name: api-inference
-    newName: docker.io/your-dockerhub-user/api-inference
-    newTag: latest
+    newName: docker.io/juanmaval/api-inference
+    newTag: d46209370b234511c2bb7ae7e0581b97842c880a
