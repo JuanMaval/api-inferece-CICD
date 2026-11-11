@@ -1,0 +1,26 @@
+# Argo CD Application: keeps the cluster in sync with infra/k8s on main.
+#
+# Apply once, after installing Argo CD in the cluster:
+#   kubectl apply -f infra/argocd/application.yaml
+#
+# The api-inference-db Secret is not in git, so Argo CD neither creates nor
+# prunes it; create it by hand (see infra/k8s/secret.example.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: api-inference
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/JuanMaval/api-inferece-CICD.git
+    targetRevision: main
+    path: infra/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: api-inference
+  syncPolicy:
+    automated:
+      # Remove resources deleted from git and revert manual cluster changes.
+      prune: true
+      selfHeal: true

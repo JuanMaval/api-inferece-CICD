@@ -15,8 +15,9 @@ resources:
 
 images:
   # Image published by .github/workflows/ci-cd-unit-tests-dockerhub.yml as
-  # <DOCKERHUB_USERNAME>/api-inference. Replace the placeholder user, and
-  # prefer the commit SHA tag over latest for reproducible rollouts.
+  # <DOCKERHUB_USERNAME>/api-inference. Its update-manifests job rewrites
+  # newName and newTag below with the commit SHA after every publish; Argo CD
+  # deploys that commit. The values here are placeholders until the first run.
   - name: api-inference
     newName: docker.io/your-dockerhub-user/api-inference
     newTag: latest

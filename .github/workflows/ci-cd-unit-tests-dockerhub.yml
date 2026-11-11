@@ -88,3 +88,43 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  # GitOps hand-off: pin the image just published in infra/k8s so Argo CD,
+  # which watches that path, rolls it out. The commit only touches infra/**,
+  # which is outside this workflow's path filters, and pushes made with
+  # GITHUB_TOKEN do not trigger workflows, so it cannot loop.
+  update-manifests:
+    needs: publish-dockerhub
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: update-manifests
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Pin image tag in kustomization
+        run: |
+          sed -i -E \
+            -e "s|^([[:space:]]*newName:).*|\1 docker.io/${IMAGE_NAME}|" \
+            -e "s|^([[:space:]]*newTag:).*|\1 ${GITHUB_SHA}|" \
+            infra/k8s/kustomization.yaml
+          grep -q "newTag: ${GITHUB_SHA}$" infra/k8s/kustomization.yaml
+          kubectl kustomize infra/k8s > /dev/null
+
+      - name: Commit and push
+        run: |
+          if git diff --quiet -- infra/k8s/kustomization.yaml; then
+            echo "Manifest already pinned to ${GITHUB_SHA}; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(infra): deploy api-inference ${GITHUB_SHA::7}" \
+            -- infra/k8s/kustomization.yaml
+          git push origin HEAD:main

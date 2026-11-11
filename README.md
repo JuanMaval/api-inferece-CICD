@@ -290,7 +290,9 @@ desde la raíz del repositorio (`APP_PATH: "."`). Ejecuta las pruebas en Python
 3.14 para pushes a `main` y `feature/**`, y para pull requests hacia `main`.
 El job `publish-dockerhub` depende de que `unit-tests` termine correctamente y
 solo se ejecuta en pushes a `main`. Construye y publica la imagen con las
-etiquetas `latest` y el SHA del commit.
+etiquetas `latest` y el SHA del commit. A continuación, el job
+`update-manifests` fija esa imagen en `infra/k8s` (ver
+[Despliegue continuo con Argo CD](#despliegue-continuo-con-argo-cd)).
 
 Para habilitar la publicación, configura los secretos del repositorio
 `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN`.
@@ -335,9 +337,10 @@ el modelo (ver [Estrategia de carga del modelo](#estrategia-de-carga-del-modelo)
 
 Antes de aplicar:
 
-1. En `infra/k8s/kustomization.yaml`, reemplaza `your-dockerhub-user` por el
-   usuario de Docker Hub que publica la imagen (y, de preferencia, `latest` por
-   el SHA del commit).
+1. Revisa la imagen en `infra/k8s/kustomization.yaml`. El job
+   `update-manifests` del workflow la fija con el SHA del commit después de
+   cada publicación; hasta la primera ejecución contiene un marcador
+   (`your-dockerhub-user`, `latest`) que debes reemplazar a mano.
 2. En `infra/k8s/configmap.yaml`, ajusta `MLFLOW_TRACKING_URI`.
 3. Crea el `Secret` con la conexión a la base de datos; no se versiona
    (`secret.example.yaml` es solo una plantilla):
@@ -352,6 +355,41 @@ kubectl -n api-inference port-forward svc/api-inference 8000:80
 
 El spool de `inference.logs` usa un `emptyDir`: sobrevive reinicios del
 contenedor, pero no la eliminación del pod.
+
+### Despliegue continuo con Argo CD
+
+`infra/argocd/application.yaml` declara una `Application` que mantiene el
+cluster sincronizado con `infra/k8s` en `main` (sincronización automática, con
+`prune` y `selfHeal`). El flujo completo es:
+
+1. Un push a `main` pasa las pruebas y publica la imagen con el SHA del commit.
+2. El job `update-manifests` escribe ese SHA en `infra/k8s/kustomization.yaml`
+   y hace commit en `main`.
+3. Argo CD detecta el commit y despliega la imagen nueva.
+
+Ese commit solo toca `infra/**`, que está fuera de los `paths` del workflow, y
+se publica con `GITHUB_TOKEN`, por lo que no vuelve a disparar el workflow.
+
+Puesta en marcha, una sola vez:
+
+```bash
+# 1. Instalar Argo CD (consulta la guía oficial para tu versión)
+kubectl create namespace argocd
+kubectl apply -n argocd --server-side \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# 2. Crear el Secret de la base de datos (Argo CD no lo gestiona)
+kubectl create namespace api-inference
+kubectl -n api-inference create secret generic api-inference-db \
+  --from-literal=TRAIN_DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/DBNAME'
+
+# 3. Registrar la aplicación
+kubectl apply -f infra/argocd/application.yaml
+```
+
+Requisitos: si el repositorio es privado, registra sus credenciales en Argo CD;
+y el job necesita poder hacer push a `main` (una regla de protección de rama
+que lo impida hará fallar el paso).
 
 ## Dependencia `diabetes-model`
 
