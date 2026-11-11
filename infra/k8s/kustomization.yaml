@@ -1,0 +1,22 @@
+# Apply with: kubectl apply -k infra/k8s
+#
+# The api-inference-db Secret is not managed here (see secret.example.yaml);
+# create it in the namespace before the pods can start.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: api-inference
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+
+images:
+  # Image published by .github/workflows/ci-cd-unit-tests-dockerhub.yml as
+  # <DOCKERHUB_USERNAME>/api-inference. Replace the placeholder user, and
+  # prefer the commit SHA tag over latest for reproducible rollouts.
+  - name: api-inference
+    newName: docker.io/your-dockerhub-user/api-inference
+    newTag: latest

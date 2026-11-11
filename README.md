@@ -27,6 +27,7 @@ se pruebe de forma autónoma.
 │   └── settings.py         # Configuración por variables de entorno
 ├── tests/                  # Suite pytest (sin red, MLflow ni PostgreSQL)
 ├── ml/diabetes_model/      # Contrato de datos compartido (copia vendorizada)
+├── infra/k8s/              # Manifiestos de Kubernetes (Kustomize)
 ├── Dockerfile              # Imagen de producción (uvicorn)
 ├── Dockerfile.test         # Imagen que ejecuta la suite de pruebas
 ├── pyproject.toml          # Dependencias y configuración de pytest
@@ -325,6 +326,32 @@ Si MLflow o la base de datos no están disponibles al arrancar, el contenedor
 igual queda en pie: `/health` responde `200` con `model_loaded=false` y
 `/predict` devuelve `503` hasta que el refresco en segundo plano consiga cargar
 el modelo (ver [Estrategia de carga del modelo](#estrategia-de-carga-del-modelo)).
+
+## Despliegue en Kubernetes
+
+`infra/k8s/` contiene los manifiestos, agrupados con Kustomize: `Namespace`,
+`ConfigMap` (configuración no sensible), `Deployment` (2 réplicas, sondas sobre
+`/health`, usuario no root) y `Service` (`ClusterIP`, puerto 80 → 8000).
+
+Antes de aplicar:
+
+1. En `infra/k8s/kustomization.yaml`, reemplaza `your-dockerhub-user` por el
+   usuario de Docker Hub que publica la imagen (y, de preferencia, `latest` por
+   el SHA del commit).
+2. En `infra/k8s/configmap.yaml`, ajusta `MLFLOW_TRACKING_URI`.
+3. Crea el `Secret` con la conexión a la base de datos; no se versiona
+   (`secret.example.yaml` es solo una plantilla):
+
+```bash
+kubectl create namespace api-inference
+kubectl -n api-inference create secret generic api-inference-db \
+  --from-literal=TRAIN_DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/DBNAME'
+kubectl apply -k infra/k8s
+kubectl -n api-inference port-forward svc/api-inference 8000:80
+```
+
+El spool de `inference.logs` usa un `emptyDir`: sobrevive reinicios del
+contenedor, pero no la eliminación del pod.
 
 ## Dependencia `diabetes-model`
 

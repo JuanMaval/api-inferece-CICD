@@ -1,0 +1,15 @@
+# Non-secret runtime configuration. Keys map 1:1 to the environment variables
+# read by src/api_inference/settings.py; anything omitted keeps its default.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-inference-config
+  labels:
+    app.kubernetes.io/name: api-inference
+data:
+  # Adjust to the MLflow service reachable from the cluster.
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  MODEL_NAME: "diabetes"
+  MODEL_ALIAS: "production"
+  MODEL_REFRESH_SECONDS: "60"
+  LOG_LEVEL: "INFO"
