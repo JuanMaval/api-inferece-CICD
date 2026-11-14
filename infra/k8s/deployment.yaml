@@ -46,11 +46,15 @@ spec:
           # only opens after it finishes. With MLflow down that takes minutes
           # (the MLflow client retries internally): allow up to 5 minutes
           # before the liveness probe takes over.
+          # Probe timeouts must exceed DB_CONNECT_TIMEOUT_SECONDS (5s default):
+          # /health pings the database and, when it is unreachable, only
+          # answers (200, database=error) after that connect timeout.
           startupProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 10
+            timeoutSeconds: 10
             failureThreshold: 30
           # /health answers 200 even without a model or database, by design:
           # the pod stays up and /predict returns 503 until the model loads.
@@ -59,14 +63,14 @@ spec:
               path: /health
               port: http
             periodSeconds: 30
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
           resources:
             requests:
