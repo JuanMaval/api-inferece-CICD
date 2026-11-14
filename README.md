@@ -290,7 +290,9 @@ desde la raíz del repositorio (`APP_PATH: "."`). Ejecuta las pruebas en Python
 3.14 para pushes a `main` y `feature/**`, y para pull requests hacia `main`.
 El job `publish-dockerhub` depende de que `unit-tests` termine correctamente y
 solo se ejecuta en pushes a `main`. Construye y publica la imagen con las
-etiquetas `latest` y el SHA del commit. A continuación, el job
+etiquetas `latest` y el SHA del commit, para `linux/amd64` y `linux/arm64`
+(esta última permite desplegarla en nodos ARM, como un cluster local en Apple
+Silicon). A continuación, el job
 `update-manifests` fija esa imagen en `infra/k8s` (ver
 [Despliegue continuo con Argo CD](#despliegue-continuo-con-argo-cd)).
 
