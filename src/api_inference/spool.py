@@ -21,9 +21,11 @@ every replay, so it is dropped and counted in ``inference_log_failures_total``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import asdict, fields
 from datetime import datetime
 from pathlib import Path
@@ -77,6 +79,26 @@ def _write_atomic(path: Path, lines: list[str]) -> None:
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
+
+
+async def _run_in_thread[T](func: Callable[..., T], *args: Any) -> T:
+    """Run a blocking spool operation in a worker thread, to completion.
+
+    A worker thread cannot be interrupted. Awaiting it directly would let a
+    cancellation return (and release the caller's lock) while the thread is
+    still touching the spool files, so a cancelled caller waits for the thread
+    to finish before the cancellation propagates.
+    """
+    task = asyncio.ensure_future(asyncio.to_thread(func, *args))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.wait([task])
+        if (exc := task.exception()) is not None:
+            logger.error("spool operation failed during cancellation: %r", exc)
+        raise
 
 
 class InferenceLogSpool:
@@ -178,8 +200,8 @@ class DurableInferenceLog:
             )
         try:
             async with self._lock:
-                await asyncio.to_thread(self._spool.append, record)
-                INFERENCE_LOG_SPOOL_PENDING.set(await asyncio.to_thread(self._spool.pending))
+                await _run_in_thread(self._spool.append, record)
+                INFERENCE_LOG_SPOOL_PENDING.set(await _run_in_thread(self._spool.pending))
         except Exception:
             INFERENCE_LOG_FAILURES.inc()
             logger.exception("inference log spool append failed for request %s", record.request_id)
@@ -198,7 +220,7 @@ class DurableInferenceLog:
         if self._spool is None:
             return 0
         async with self._lock:
-            records = await asyncio.to_thread(self._spool.take)
+            records = await _run_in_thread(self._spool.take)
             if not records:
                 INFERENCE_LOG_SPOOL_PENDING.set(0)
                 return 0
@@ -236,5 +258,5 @@ class DurableInferenceLog:
 
     async def _settle(self, remaining: list[InferenceLogRecord]) -> None:
         async with self._lock:
-            await asyncio.to_thread(self._spool.settle, remaining)
-            INFERENCE_LOG_SPOOL_PENDING.set(await asyncio.to_thread(self._spool.pending))
+            await _run_in_thread(self._spool.settle, remaining)
+            INFERENCE_LOG_SPOOL_PENDING.set(await _run_in_thread(self._spool.pending))

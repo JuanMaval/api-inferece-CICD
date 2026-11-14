@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -130,8 +132,11 @@ async def test_spool_survives_a_restart(tmp_path: Path):
 async def test_cancelled_replay_keeps_every_unconfirmed_row(tmp_path: Path):
     """A shutdown in the middle of a replay (SIGTERM during an outage) loses nothing."""
 
+    inserting = asyncio.Event()
+
     class SlowRepository(InMemoryRepository):
         async def log(self, record: InferenceLogRecord) -> None:
+            inserting.set()
             await asyncio.sleep(10)  # a hanging connection attempt
 
     spool = InferenceLogSpool(tmp_path / "spool.jsonl")
@@ -141,13 +146,54 @@ async def test_cancelled_replay_keeps_every_unconfirmed_row(tmp_path: Path):
         await durable.write(record)
 
     task = asyncio.create_task(DurableInferenceLog(SlowRepository(), spool).replay())
-    await asyncio.sleep(0.05)  # inside the first insert
+    await inserting.wait()  # inside the first insert
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
         pass
 
+    assert spool.pending() == 3
+    assert spool.read_all() == records
+    repository = InMemoryRepository()
+    assert await DurableInferenceLog(repository, spool).replay() == 3
+    assert repository.rows == records
+
+
+async def test_replay_cancelled_while_reading_the_spool_waits_for_the_file_operation(
+    tmp_path: Path,
+):
+    """A worker thread cannot be interrupted: a replay cancelled while it moves
+    the rows to the in-flight file returns only once that move is finished, so
+    nothing else touches the spool files at the same time."""
+    taking = threading.Event()
+    taken = threading.Event()
+
+    class SlowSpool(InferenceLogSpool):
+        def take(self) -> list[InferenceLogRecord]:
+            taking.set()
+            time.sleep(0.2)  # a slow disk
+            try:
+                return super().take()
+            finally:
+                taken.set()
+
+    spool = SlowSpool(tmp_path / "spool.jsonl")
+    durable = DurableInferenceLog(InMemoryRepository(fail_log=True), spool)
+    records = [_record() for _ in range(3)]
+    for record in records:
+        await durable.write(record)
+
+    task = asyncio.create_task(DurableInferenceLog(InMemoryRepository(), spool).replay())
+    await asyncio.to_thread(taking.wait)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    assert task.cancelled()
+    assert taken.is_set()
     assert spool.pending() == 3
     assert spool.read_all() == records
     repository = InMemoryRepository()
