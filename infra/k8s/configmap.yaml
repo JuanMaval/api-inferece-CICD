@@ -12,4 +12,10 @@ data:
   MODEL_NAME: "diabetes"
   MODEL_ALIAS: "production"
   MODEL_REFRESH_SECONDS: "60"
+  # The MLflow client retries each request 7 times by default (~4 minutes when
+  # the server is unreachable). The initial model load runs before the port
+  # opens and makes up to MODEL_LOAD_RETRIES attempts, so the default would
+  # outlast the startup probe and restart the pod forever. Fail fast instead:
+  # the background refresh keeps looking for the model once the API is up.
+  MLFLOW_HTTP_REQUEST_MAX_RETRIES: "2"
   LOG_LEVEL: "INFO"
