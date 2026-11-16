@@ -444,3 +444,55 @@ con los tags `latest` y `<sha>` del commit
 Ejecución de la suite (63 pruebas) con `docker run --rm api-inference-tests`.
 
 ![Pruebas en Docker local](docs/evidencias/tests-docker-local.png)
+
+## Evidencias de funcionamiento de la API y sus servicios
+
+Las capturas siguen el orden del flujo de entrega continua: GitHub Actions
+publica la imagen, Argo CD sincroniza los manifiestos de `infra/k8s` y
+Kubernetes reemplaza los pods hasta que la aplicación queda `Healthy`.
+
+### 1. Ejecuciones del workflow en GitHub Actions
+
+Historial del workflow *CI Unit Tests + DockerHub Publish* en `main`. La
+ejecución #5 (commit `a704626`) termina bien: pasa las pruebas, publica la
+imagen multiarquitectura (`amd64`/`arm64`) y actualiza los manifiestos. La #4
+falló y se corrigió en la #5.
+
+![Ejecuciones del workflow en GitHub Actions](docs/evidencias/01-github-actions-workflows.png)
+
+### 2. Aplicación `api-inference` registrada en Argo CD
+
+La `Application` apunta al repositorio en `main`, ruta `infra/k8s`, y despliega
+en el namespace `api-inference` del cluster local (`in-cluster`). Aparece
+`Synced` con el commit generado por el pipeline, mientras el despliegue sigue
+en `Progressing`.
+
+![Aplicación api-inference en Argo CD](docs/evidencias/02-argocd-aplicacion.png)
+
+### 3. Sincronización automática del commit del pipeline
+
+Árbol de recursos de la aplicación: `Namespace`, `ConfigMap`, `Service` y
+`Deployment`. Argo CD sincronizó automáticamente el commit
+`chore(infra): deploy api-inference a704626` creado por `github-actions[bot]`
+y el `Deployment` crea un `ReplicaSet` nuevo (`rev:2`) con la imagen
+publicada. Los pods del `ReplicaSet` anterior (`rev:1`) siguen en
+`ImagePullBackOff` porque esa imagen no tenía la arquitectura del nodo.
+
+![Sincronización en Argo CD, estado Progressing](docs/evidencias/03-argocd-sync-progressing.png)
+
+### 4. Rollout de los pods en Kubernetes
+
+`kubectl -n api-inference get pods -w` muestra el pod nuevo pasando por
+`Pending` → `ContainerCreating` → `Running` con la imagen multiarquitectura,
+mientras los pods antiguos siguen fallando al descargar su imagen.
+
+![Rollout de los pods con kubectl](docs/evidencias/04-kubectl-rollout-pods.png)
+
+### 5. Aplicación sincronizada y saludable
+
+Tras el commit `fix(infra): raise probe timeouts above the database co…`
+(`4f0305a`), Argo CD sincroniza la revisión `rev:3` del `Deployment`. Las dos
+réplicas quedan `Running` y `1/1` (sondas sobre `/health` en verde), y la
+aplicación queda **Healthy** y **Synced**.
+
+![Aplicación Healthy y Synced en Argo CD](docs/evidencias/05-argocd-healthy.png)
